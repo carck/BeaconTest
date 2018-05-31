@@ -42,10 +42,12 @@ export default class App extends Component<Props> {
     }
 
     onBeacon(e) {
-        if (e.distance <= 1) {
+        if (e.distance <= 0.5) {
             if (!this.state.meeting) {
                 this.setState({distance: e.distance, meeting: true});
                 this.onMeeting();
+            } else {
+                this.setState({distance: e.distance});
             }
         } else {
             this.setState({distance: e.distance});
@@ -53,12 +55,13 @@ export default class App extends Component<Props> {
     }
 
     onMeeting() {
+        let {name, meeting} = {name: 'Lance', meeting: 'Hackthon demo'};
         Alert.alert(
             'Meeting',
-            'Would you like to join meeting?',
+            `Welcome ${name}.\n\n Meeting "${meeting}" is on gonging in this meeting room.\n\n Would you like to join the meeting?`,
             [
                 {text: 'Cancel', onPress: () => console.log('Cancel Pressed'), style: 'cancel'},
-                {text: 'OK', onPress: () => console.log('OK Pressed')},
+                {text: 'OK', onPress: () => Beacon.openMeetings()},
             ],
             {cancelable: false}
         )

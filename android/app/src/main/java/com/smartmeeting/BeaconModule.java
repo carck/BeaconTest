@@ -11,6 +11,7 @@ import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.Intent;
 import android.support.annotation.Nullable;
 import android.widget.Toast;
 import com.facebook.react.bridge.Arguments;
@@ -25,6 +26,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -40,7 +42,7 @@ public class BeaconModule extends ReactContextBaseJavaModule {
     private AdvertiseData mAdvertiseData;
     private ScanSettings mScanSettings;
     private ScanFilter mScanFilter;
-    BluetoothAdapter bluetoothAdapter;
+    private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner mBluetoothLeScanner;
     private BluetoothLeAdvertiser mBluetoothLeAdvertiser;
     private AdvertiseCallback mAdvertiseCallback;
@@ -57,11 +59,18 @@ public class BeaconModule extends ReactContextBaseJavaModule {
             public void onScanResult(int callbackType, ScanResult result) {
                 ScanRecord mScanRecord = result.getScanRecord();
                 byte[] manufacturerData = mScanRecord.getManufacturerSpecificData(MANUFACTURE_ID);
-                int mRssi = result.getRssi();
-                double distance = calculateDistance(manufacturerData[22], mRssi);
-                WritableMap params = Arguments.createMap();
-                params.putDouble("distance", distance);
-                sendEvent(reactContext, "Beacon", params);
+                if (manufacturerData != null) {
+                    int mRssi = result.getRssi();
+                    double distance = calculateDistance(manufacturerData[22], mRssi);
+                    WritableMap params = Arguments.createMap();
+                    params.putDouble("distance", distance);
+                    sendEvent(reactContext, "Beacon", params);
+                }
+            }
+
+            @Override
+            public void onBatchScanResults(List<ScanResult> results) {
+                super.onBatchScanResults(results);
             }
 
             @Override
@@ -130,10 +139,20 @@ public class BeaconModule extends ReactContextBaseJavaModule {
             isListening = true;
             setScanFilter();
             setScanSettings();
+            //mBluetoothLeScanner.startScan(mScanCallback);
             mBluetoothLeScanner.startScan(Collections.singletonList(mScanFilter), mScanSettings, mScanCallback);
             promise.resolve(null);
         } else {
             promise.reject("-1", "It is already listening");
+        }
+    }
+
+    @ReactMethod
+    public void openMeetings() {
+        ReactApplicationContext context = getReactApplicationContext();
+        Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage("com.ringcentral.meetings");
+        if (launchIntent != null) {
+            context.startActivity(launchIntent);
         }
     }
 
@@ -178,16 +197,13 @@ public class BeaconModule extends ReactContextBaseJavaModule {
 
     private void setScanFilter() {
         ScanFilter.Builder mBuilder = new ScanFilter.Builder();
-        ByteBuffer mManufacturerData = ByteBuffer.allocate(23);
-        ByteBuffer mManufacturerDataMask = ByteBuffer.allocate(24);
-        byte[] uuid = getIdAsByte(UUID.fromString(MANUFACTURE_UUID));
-        mManufacturerData.put(0, (byte) 0xBE);
-        mManufacturerData.put(1, (byte) 0xAC);
-        for (int i = 2; i <= 17; i++) {
-            mManufacturerData.put(i, uuid[i - 2]);
-        }
+        ByteBuffer mManufacturerData = getManufacturerDataBuffer();
+        ByteBuffer mManufacturerDataMask = ByteBuffer.allocate(23);
         for (int i = 0; i <= 17; i++) {
             mManufacturerDataMask.put((byte) 0x01);
+        }
+        for (int i = 18; i <= 22; i++) {
+            mManufacturerDataMask.put((byte) 0x00);
         }
         mBuilder.setManufacturerData(MANUFACTURE_ID, mManufacturerData.array(), mManufacturerDataMask.array());
         mScanFilter = mBuilder.build();
@@ -196,7 +212,7 @@ public class BeaconModule extends ReactContextBaseJavaModule {
     private void setScanSettings() {
         ScanSettings.Builder mBuilder = new ScanSettings.Builder();
         mBuilder.setReportDelay(0);
-        mBuilder.setScanMode(ScanSettings.SCAN_MODE_LOW_POWER);
+        mBuilder.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY);
         mScanSettings = mBuilder.build();
     }
 
@@ -215,7 +231,13 @@ public class BeaconModule extends ReactContextBaseJavaModule {
     //////////////Emitter
     private void setAdvertiseData() {
         AdvertiseData.Builder mBuilder = new AdvertiseData.Builder();
-        ByteBuffer mManufacturerData = ByteBuffer.allocate(24);
+        ByteBuffer mManufacturerData = getManufacturerDataBuffer();
+        mBuilder.addManufacturerData(MANUFACTURE_ID, mManufacturerData.array());
+        mAdvertiseData = mBuilder.build();
+    }
+
+    private ByteBuffer getManufacturerDataBuffer() {
+        ByteBuffer mManufacturerData = ByteBuffer.allocate(23);
         byte[] uuid = getIdAsByte(UUID.fromString(MANUFACTURE_UUID));
         mManufacturerData.put(0, (byte) 0xBE); // Beacon Identifier
         mManufacturerData.put(1, (byte) 0xAC); // Beacon Identifier
@@ -227,16 +249,15 @@ public class BeaconModule extends ReactContextBaseJavaModule {
         mManufacturerData.put(20, (byte) 0x00); // first minor
         mManufacturerData.put(21, (byte) 0x06); // second minor
         mManufacturerData.put(22, (byte) 0xB5); // txPower
-        mBuilder.addManufacturerData(MANUFACTURE_ID, mManufacturerData.array());
-        mAdvertiseData = mBuilder.build();
+        return mManufacturerData;
     }
 
     private void setAdvertiseSettings() {
         AdvertiseSettings.Builder mBuilder = new AdvertiseSettings.Builder();
-        mBuilder.setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_POWER);
+        mBuilder.setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY);
         mBuilder.setConnectable(false);
         mBuilder.setTimeout(0);
-        mBuilder.setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM);
+        mBuilder.setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH);
         mAdvertiseSettings = mBuilder.build();
     }
 
